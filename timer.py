@@ -5,7 +5,7 @@ import base64
 
 # Configure page
 st.set_page_config(
-    page_title="Multi-Timer Countdown",
+    page_title="Exam Timer - Time Extensions",
     page_icon="⏰",
     layout="wide"
 )
@@ -20,10 +20,10 @@ if 'finished_timers' not in st.session_state:
 
 # Timer configurations (minutes, display name, sound frequency)
 TIMERS = [
-    (75, "75+0", 440),    # A4 note
-    (81.25, "75+6.25", 523),    # C5 note
-    (87.5, "75+12.5", 659),   # E5 note
-    (93.75, "75+18.75", 783)
+    (75, "Standard Time (75 min)", 440),        # A4 note
+    (81.25, "5 min/hr ext (81:15)", 523),      # C5 note
+    (87.5, "10 min/hr ext (87:30)", 659),      # E5 note
+    (93.75, "15 min/hr ext (93:45)", 783)      # G5 note
 ]
 
 def generate_beep_sound(frequency=440, duration=0.5, sample_rate=44100):
@@ -100,9 +100,18 @@ def play_notification_sound(frequency):
         # Fallback: show a visual notification if audio fails
         st.warning(f"🔔 Timer finished! (Audio unavailable: {str(e)})")
 
-# Title
-st.title("⏰ Multi-Timer Countdown")
-st.markdown("**Each timer has a unique sound when it finishes!**")
+# Title and description
+st.title("⏰ Exam Timer - Time Extensions")
+st.markdown("**Track standard exam time and three common time extension scenarios**")
+st.markdown("*Each timer has a unique sound when it finishes!*")
+st.markdown("---")
+
+# Extension explanation
+st.markdown("### 📋 Time Extension Details:")
+st.markdown("- **Standard**: 75 minutes base exam time")
+st.markdown("- **5 min/hr**: 5 × 1.25 = 6.25 minutes extra → 81 minutes 15 seconds")
+st.markdown("- **10 min/hr**: 10 × 1.25 = 12.5 minutes extra → 87 minutes 30 seconds")
+st.markdown("- **15 min/hr**: 15 × 1.25 = 18.75 minutes extra → 93 minutes 45 seconds")
 st.markdown("---")
 
 # Control buttons
@@ -132,24 +141,23 @@ st.markdown("---")
 
 # Sound frequency legend
 st.markdown("### 🎵 Sound Legend:")
-sound_cols = st.columns(6)
+sound_cols = st.columns(4)
+note_names = ["A4", "C5", "E5", "G5"]
 for i, (duration, name, freq) in enumerate(TIMERS):
     with sound_cols[i]:
-        note_names = ["A4", "C5", "E5"]
-        st.markdown(f"**{name}**: {note_names[i]} ({freq}Hz)")
+        st.markdown(f"**{name.split('(')[0].strip()}**: {note_names[i]} ({freq}Hz)")
 
 st.markdown("---")
 
-# Display timers in a grid
-col1, col2, col3 = st.columns(3)
-columns = [col1, col2, col3]
+# Display timers in a 2x2 grid
+row1_cols = st.columns(2)
+row2_cols = st.columns(2)
+all_columns = row1_cols + row2_cols
 
 newly_finished = []
 
 for i, (duration_minutes, display_name, frequency) in enumerate(TIMERS):
-    col_index = i % 3
-    
-    with columns[col_index]:
+    with all_columns[i]:
         # Calculate remaining time
         remaining_seconds = get_time_remaining(duration_minutes, st.session_state.start_time)
         
@@ -177,7 +185,12 @@ for i, (duration_minutes, display_name, frequency) in enumerate(TIMERS):
         # Create a container for each timer
         with st.container():
             st.markdown(f"### {display_name}")
-            st.markdown(f"**Duration:** {duration_minutes} minutes")
+            
+            # Show exact duration in minutes and seconds
+            total_seconds = int(duration_minutes * 60)
+            mins = total_seconds // 60
+            secs = total_seconds % 60
+            st.markdown(f"**Duration:** {mins} min {secs} sec")
             
             # Large time display
             time_display = format_time(remaining_seconds)
@@ -203,7 +216,7 @@ for i, (duration_minutes, display_name, frequency) in enumerate(TIMERS):
 # Play sounds for newly finished timers
 for timer_id, frequency, name in newly_finished:
     play_notification_sound(frequency)
-    st.success(f"🎵 {name} timer finished!")
+    st.success(f"🎵 {name} finished!")
 
 # Auto-refresh when running
 if st.session_state.is_running:
@@ -236,12 +249,11 @@ st.markdown("5. Click **'Reset All Timers'** to stop and reset all timers")
 # Technical note
 st.markdown("---")
 st.markdown("### 🔧 Audio Notes:")
-st.markdown("- Sounds are generated as pure sine wave tones")
+st.markdown("- Sounds are generated as pure sine wave tones (A4, C5, E5, G5)")
 st.markdown("- Different musical notes help distinguish which timer finished")
 st.markdown("- If audio doesn't work, check your browser's audio permissions")
 st.markdown("- Each timer plays a 1-second tone when it reaches zero")
 
 # Footer
 st.markdown("---")
-
-st.markdown("*Timer names indicate base time (70 minutes) plus additional minutes*")
+st.markdown("*Extension times calculated as: (extension minutes per hour) × 1.25 hours*")
