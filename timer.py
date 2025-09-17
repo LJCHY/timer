@@ -20,12 +20,10 @@ if 'finished_timers' not in st.session_state:
 
 # Timer configurations (minutes, display name, sound frequency)
 TIMERS = [
-    (70, "70+0", 440),    # A4 note
-    (76, "70+6", 523),    # C5 note
-    (80, "70+10", 659),   # E5 note
-    (82, "70+12", 783),   # G5 note
-    (88, "70+18", 880),   # A5 note
-    (105, "70+35", 1047)  # C6 note
+    (75, "75+0", 440),    # A4 note
+    (81.25, "75+6.25", 523),    # C5 note
+    (87.5, "75+12.5", 659),   # E5 note
+    (93.75, "75+18.75", 783)
 ]
 
 def generate_beep_sound(frequency=440, duration=0.5, sample_rate=44100):
@@ -137,7 +135,7 @@ st.markdown("### 🎵 Sound Legend:")
 sound_cols = st.columns(6)
 for i, (duration, name, freq) in enumerate(TIMERS):
     with sound_cols[i]:
-        note_names = ["A4", "C5", "E5", "G5", "A5", "C6"]
+        note_names = ["A4", "C5", "E5"]
         st.markdown(f"**{name}**: {note_names[i]} ({freq}Hz)")
 
 st.markdown("---")
@@ -245,4 +243,5 @@ st.markdown("- Each timer plays a 1-second tone when it reaches zero")
 
 # Footer
 st.markdown("---")
+
 st.markdown("*Timer names indicate base time (70 minutes) plus additional minutes*")
