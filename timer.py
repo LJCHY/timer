@@ -5,68 +5,78 @@ import base64
 
 # Configure page
 st.set_page_config(
-    page_title="Exam Timer - Time Extensions",
+    page_title="Enhanced Exam Timer",
     page_icon="⏰",
     layout="wide"
 )
 
 # Initialize session state
-if 'start_time' not in st.session_state:
-    st.session_state.start_time = None
-if 'is_running' not in st.session_state:
-    st.session_state.is_running = False
+if 'num_timers' not in st.session_state:
+    st.session_state.num_timers = 4
+if 'timer_configs' not in st.session_state:
+    # Default configurations
+    st.session_state.timer_configs = [
+        {"name": "Standard Time", "minutes": 75, "frequency": 440},
+        {"name": "5 min/hr ext", "minutes": 81.25, "frequency": 523},
+        {"name": "10 min/hr ext", "minutes": 87.5, "frequency": 659},
+        {"name": "15 min/hr ext", "minutes": 93.75, "frequency": 783},
+        {"name": "Custom Timer 5", "minutes": 60, "frequency": 880},
+        {"name": "Custom Timer 6", "minutes": 90, "frequency": 1047}
+    ]
+if 'timer_states' not in st.session_state:
+    st.session_state.timer_states = {}
 if 'finished_timers' not in st.session_state:
     st.session_state.finished_timers = set()
 
-# Timer configurations (minutes, display name, sound frequency)
-TIMERS = [
-    (75, "Standard Time (75 min)", 440),        # A4 note
-    (81.25, "5 min/hr ext (81:15)", 523),      # C5 note
-    (87.5, "10 min/hr ext (87:30)", 659),      # E5 note
-    (93.75, "15 min/hr ext (93:45)", 783)      # G5 note
-]
+# Available frequencies for different timers
+AVAILABLE_FREQUENCIES = [440, 523, 659, 783, 880, 1047, 1175, 1319]  # A4, C5, E5, G5, A5, C6, D6, E6
+FREQUENCY_NAMES = ["A4", "C5", "E5", "G5", "A5", "C6", "D6", "E6"]
 
 def generate_beep_sound(frequency=440, duration=0.5, sample_rate=44100):
     """Generate a simple beep sound as base64 encoded audio"""
-    import numpy as np
-    
-    # Generate sine wave
-    t = np.linspace(0, duration, int(sample_rate * duration), False)
-    wave = np.sin(2 * np.pi * frequency * t)
-    
-    # Apply fade in/out to avoid clicks
-    fade_samples = int(0.01 * sample_rate)  # 10ms fade
-    wave[:fade_samples] *= np.linspace(0, 1, fade_samples)
-    wave[-fade_samples:] *= np.linspace(1, 0, fade_samples)
-    
-    # Convert to 16-bit PCM
-    audio = (wave * 32767).astype(np.int16)
-    
-    # Create WAV file in memory
-    import io
-    import struct
-    
-    buffer = io.BytesIO()
-    
-    # WAV header
-    buffer.write(b'RIFF')
-    buffer.write(struct.pack('<I', 36 + len(audio) * 2))
-    buffer.write(b'WAVE')
-    buffer.write(b'fmt ')
-    buffer.write(struct.pack('<I', 16))
-    buffer.write(struct.pack('<H', 1))  # PCM
-    buffer.write(struct.pack('<H', 1))  # mono
-    buffer.write(struct.pack('<I', sample_rate))
-    buffer.write(struct.pack('<I', sample_rate * 2))
-    buffer.write(struct.pack('<H', 2))
-    buffer.write(struct.pack('<H', 16))
-    buffer.write(b'data')
-    buffer.write(struct.pack('<I', len(audio) * 2))
-    buffer.write(audio.tobytes())
-    
-    # Encode to base64
-    audio_b64 = base64.b64encode(buffer.getvalue()).decode()
-    return f"data:audio/wav;base64,{audio_b64}"
+    try:
+        import numpy as np
+        
+        # Generate sine wave
+        t = np.linspace(0, duration, int(sample_rate * duration), False)
+        wave = np.sin(2 * np.pi * frequency * t)
+        
+        # Apply fade in/out to avoid clicks
+        fade_samples = int(0.01 * sample_rate)  # 10ms fade
+        wave[:fade_samples] *= np.linspace(0, 1, fade_samples)
+        wave[-fade_samples:] *= np.linspace(1, 0, fade_samples)
+        
+        # Convert to 16-bit PCM
+        audio = (wave * 32767).astype(np.int16)
+        
+        # Create WAV file in memory
+        import io
+        import struct
+        
+        buffer = io.BytesIO()
+        
+        # WAV header
+        buffer.write(b'RIFF')
+        buffer.write(struct.pack('<I', 36 + len(audio) * 2))
+        buffer.write(b'WAVE')
+        buffer.write(b'fmt ')
+        buffer.write(struct.pack('<I', 16))
+        buffer.write(struct.pack('<H', 1))  # PCM
+        buffer.write(struct.pack('<H', 1))  # mono
+        buffer.write(struct.pack('<I', sample_rate))
+        buffer.write(struct.pack('<I', sample_rate * 2))
+        buffer.write(struct.pack('<H', 2))
+        buffer.write(struct.pack('<H', 16))
+        buffer.write(b'data')
+        buffer.write(struct.pack('<I', len(audio) * 2))
+        buffer.write(audio.tobytes())
+        
+        # Encode to base64
+        audio_b64 = base64.b64encode(buffer.getvalue()).decode()
+        return f"data:audio/wav;base64,{audio_b64}"
+    except ImportError:
+        st.error("NumPy is required for audio generation. Install with: pip install numpy")
+        return None
 
 def format_time(seconds):
     """Format seconds into MM:SS format"""
@@ -77,183 +87,293 @@ def format_time(seconds):
     secs = int(seconds % 60)
     return f"{mins:02d}:{secs:02d}"
 
-def get_time_remaining(duration_minutes, start_time):
-    """Calculate remaining time for a timer"""
-    if start_time is None:
-        return duration_minutes * 60
+def get_time_remaining(timer_id):
+    """Calculate remaining time for a specific timer"""
+    if timer_id not in st.session_state.timer_states:
+        return None
     
-    elapsed = (datetime.now() - start_time).total_seconds()
-    remaining = (duration_minutes * 60) - elapsed
+    timer_state = st.session_state.timer_states[timer_id]
+    if timer_state['start_time'] is None or not timer_state['is_running']:
+        return timer_state['duration'] * 60
+    
+    elapsed = (datetime.now() - timer_state['start_time']).total_seconds()
+    remaining = (timer_state['duration'] * 60) - elapsed
     return max(0, remaining)
 
 def play_notification_sound(frequency):
     """Play a notification sound using HTML audio"""
     try:
         audio_data = generate_beep_sound(frequency, 1.0)  # 1 second beep
-        audio_html = f"""
-        <audio autoplay>
-            <source src="{audio_data}" type="audio/wav">
-        </audio>
-        """
-        st.markdown(audio_html, unsafe_allow_html=True)
+        if audio_data:
+            audio_html = f"""
+            <audio autoplay>
+                <source src="{audio_data}" type="audio/wav">
+            </audio>
+            """
+            st.markdown(audio_html, unsafe_allow_html=True)
     except Exception as e:
         # Fallback: show a visual notification if audio fails
         st.warning(f"🔔 Timer finished! (Audio unavailable: {str(e)})")
 
+def initialize_timer_state(timer_id, duration):
+    """Initialize state for a timer if it doesn't exist"""
+    if timer_id not in st.session_state.timer_states:
+        st.session_state.timer_states[timer_id] = {
+            'start_time': None,
+            'is_running': False,
+            'duration': duration
+        }
+
+def start_timer(timer_id):
+    """Start a specific timer"""
+    if timer_id in st.session_state.timer_states:
+        st.session_state.timer_states[timer_id]['start_time'] = datetime.now()
+        st.session_state.timer_states[timer_id]['is_running'] = True
+
+def stop_timer(timer_id):
+    """Stop a specific timer"""
+    if timer_id in st.session_state.timer_states:
+        st.session_state.timer_states[timer_id]['is_running'] = False
+
+def reset_timer(timer_id):
+    """Reset a specific timer"""
+    if timer_id in st.session_state.timer_states:
+        st.session_state.timer_states[timer_id]['start_time'] = None
+        st.session_state.timer_states[timer_id]['is_running'] = False
+        if timer_id in st.session_state.finished_timers:
+            st.session_state.finished_timers.remove(timer_id)
+
 # Title and description
-st.title("⏰ Exam Timer - Time Extensions")
-st.markdown("**Track standard exam time and three common time extension scenarios**")
-st.markdown("*Each timer has a unique sound when it finishes!*")
+st.title("⏰ Enhanced Exam Timer")
+st.markdown("**Customizable timer system with individual controls**")
 st.markdown("---")
 
-# Extension explanation
-st.markdown("### 📋 Time Extension Details:")
-st.markdown("- **Standard**: 75 minutes base exam time")
-st.markdown("- **5 min/hr**: 5 × 1.25 = 6.25 minutes extra → 81 minutes 15 seconds")
-st.markdown("- **10 min/hr**: 10 × 1.25 = 12.5 minutes extra → 87 minutes 30 seconds")
-st.markdown("- **15 min/hr**: 15 × 1.25 = 18.75 minutes extra → 93 minutes 45 seconds")
+# Configuration section
+st.subheader("🛠️ Timer Configuration")
+
+# Number of timers selector
+new_num_timers = st.slider("Number of Timers", min_value=1, max_value=6, value=st.session_state.num_timers)
+
+if new_num_timers != st.session_state.num_timers:
+    st.session_state.num_timers = new_num_timers
+    st.rerun()
+
+# Timer configuration
+config_cols = st.columns(min(3, st.session_state.num_timers))
+for i in range(st.session_state.num_timers):
+    col_idx = i % len(config_cols)
+    with config_cols[col_idx]:
+        st.markdown(f"**Timer {i+1}**")
+        
+        # Timer name
+        new_name = st.text_input(
+            f"Name", 
+            value=st.session_state.timer_configs[i]["name"], 
+            key=f"name_{i}"
+        )
+        st.session_state.timer_configs[i]["name"] = new_name
+        
+        # Timer duration
+        new_minutes = st.number_input(
+            f"Minutes", 
+            min_value=0.25, 
+            max_value=300.0, 
+            value=float(st.session_state.timer_configs[i]["minutes"]), 
+            step=0.25,
+            key=f"minutes_{i}"
+        )
+        st.session_state.timer_configs[i]["minutes"] = new_minutes
+        
+        # Sound frequency
+        freq_idx = AVAILABLE_FREQUENCIES.index(st.session_state.timer_configs[i]["frequency"]) if st.session_state.timer_configs[i]["frequency"] in AVAILABLE_FREQUENCIES else 0
+        new_freq_idx = st.selectbox(
+            f"Sound", 
+            range(len(AVAILABLE_FREQUENCIES)),
+            index=freq_idx,
+            format_func=lambda x: f"{FREQUENCY_NAMES[x]} ({AVAILABLE_FREQUENCIES[x]}Hz)",
+            key=f"freq_{i}"
+        )
+        st.session_state.timer_configs[i]["frequency"] = AVAILABLE_FREQUENCIES[new_freq_idx]
+
 st.markdown("---")
 
-# Control buttons
-col1, col2, col3 = st.columns([1, 1, 4])
+# Global controls
+st.subheader("🎮 Global Controls")
+global_cols = st.columns(4)
 
-with col1:
-    if st.button("🚀 Start All Timers", disabled=st.session_state.is_running):
-        st.session_state.start_time = datetime.now()
-        st.session_state.is_running = True
-        st.session_state.finished_timers = set()
+with global_cols[0]:
+    if st.button("🚀 Start All Timers"):
+        for i in range(st.session_state.num_timers):
+            timer_id = f"timer_{i}"
+            initialize_timer_state(timer_id, st.session_state.timer_configs[i]["minutes"])
+            start_timer(timer_id)
         st.rerun()
 
-with col2:
+with global_cols[1]:
+    if st.button("⏹️ Stop All Timers"):
+        for i in range(st.session_state.num_timers):
+            timer_id = f"timer_{i}"
+            stop_timer(timer_id)
+        st.rerun()
+
+with global_cols[2]:
     if st.button("🔄 Reset All Timers"):
-        st.session_state.start_time = None
-        st.session_state.is_running = False
-        st.session_state.finished_timers = set()
+        for i in range(st.session_state.num_timers):
+            timer_id = f"timer_{i}"
+            reset_timer(timer_id)
         st.rerun()
 
-# Status
-if st.session_state.is_running:
-    st.success("✅ Timers are running!")
-else:
-    st.info("⏹️ Timers are stopped")
+with global_cols[3]:
+    # Status indicator
+    running_count = sum(1 for i in range(st.session_state.num_timers) 
+                       if f"timer_{i}" in st.session_state.timer_states 
+                       and st.session_state.timer_states[f"timer_{i}"]["is_running"])
+    
+    if running_count > 0:
+        st.success(f"✅ {running_count} timer(s) running")
+    else:
+        st.info("⏹️ All timers stopped")
 
 st.markdown("---")
 
-# Sound frequency legend
-st.markdown("### 🎵 Sound Legend:")
-sound_cols = st.columns(4)
-note_names = ["A4", "C5", "E5", "G5"]
-for i, (duration, name, freq) in enumerate(TIMERS):
-    with sound_cols[i]:
-        st.markdown(f"**{name.split('(')[0].strip()}**: {note_names[i]} ({freq}Hz)")
+# Display timers
+st.subheader("⏱️ Timer Display")
 
-st.markdown("---")
-
-# Display timers in a 2x2 grid
-row1_cols = st.columns(2)
-row2_cols = st.columns(2)
-all_columns = row1_cols + row2_cols
+# Calculate columns for timer display
+cols_per_row = 3 if st.session_state.num_timers > 4 else 2
+rows_needed = (st.session_state.num_timers + cols_per_row - 1) // cols_per_row
 
 newly_finished = []
 
-for i, (duration_minutes, display_name, frequency) in enumerate(TIMERS):
-    with all_columns[i]:
-        # Calculate remaining time
-        remaining_seconds = get_time_remaining(duration_minutes, st.session_state.start_time)
-        
-        # Check if timer just finished
-        timer_id = f"{display_name}_{duration_minutes}"
-        just_finished = (remaining_seconds <= 0 and 
-                        st.session_state.is_running and 
-                        timer_id not in st.session_state.finished_timers)
-        
-        if just_finished:
-            newly_finished.append((timer_id, frequency, display_name))
-            st.session_state.finished_timers.add(timer_id)
-        
-        # Determine status and color
-        if remaining_seconds <= 0 and st.session_state.is_running:
-            status = "🔔 FINISHED!"
-            color = "red"
-        elif st.session_state.is_running:
-            status = "🏃 Running"
-            color = "green"
-        else:
-            status = "⏸️ Ready"
-            color = "blue"
-        
-        # Create a container for each timer
-        with st.container():
-            st.markdown(f"### {display_name}")
+for row in range(rows_needed):
+    timer_cols = st.columns(cols_per_row)
+    
+    for col in range(cols_per_row):
+        timer_idx = row * cols_per_row + col
+        if timer_idx >= st.session_state.num_timers:
+            break
             
-            # Show exact duration in minutes and seconds
-            total_seconds = int(duration_minutes * 60)
-            mins = total_seconds // 60
-            secs = total_seconds % 60
-            st.markdown(f"**Duration:** {mins} min {secs} sec")
+        with timer_cols[col]:
+            timer_id = f"timer_{timer_idx}"
+            config = st.session_state.timer_configs[timer_idx]
             
-            # Large time display
-            time_display = format_time(remaining_seconds)
-            st.markdown(f"<h1 style='text-align: center; color: {color}; font-family: monospace;'>{time_display}</h1>", 
-                       unsafe_allow_html=True)
+            # Initialize timer state if needed
+            initialize_timer_state(timer_id, config["minutes"])
             
-            st.markdown(f"<p style='text-align: center; color: {color}; font-weight: bold;'>{status}</p>", 
-                       unsafe_allow_html=True)
+            # Calculate remaining time
+            remaining_seconds = get_time_remaining(timer_id)
             
-            # Progress bar
-            if st.session_state.is_running:
-                progress = max(0, 1 - (remaining_seconds / (duration_minutes * 60)))
-                st.progress(progress)
+            # Check if timer just finished
+            just_finished = (remaining_seconds is not None and 
+                           remaining_seconds <= 0 and 
+                           st.session_state.timer_states[timer_id]["is_running"] and 
+                           timer_id not in st.session_state.finished_timers)
+            
+            if just_finished:
+                newly_finished.append((timer_id, config["frequency"], config["name"]))
+                st.session_state.finished_timers.add(timer_id)
+                st.session_state.timer_states[timer_id]["is_running"] = False
+            
+            # Determine status and color
+            is_running = st.session_state.timer_states[timer_id]["is_running"]
+            if remaining_seconds <= 0 and timer_id in st.session_state.finished_timers:
+                status = "🔔 FINISHED!"
+                color = "red"
+            elif is_running:
+                status = "🏃 Running"
+                color = "green"
             else:
-                st.progress(0)
+                status = "⏸️ Ready"
+                color = "blue"
             
-            # Test sound button
-            if st.button(f"🔊 Test Sound", key=f"test_{timer_id}"):
-                play_notification_sound(frequency)
-            
-            st.markdown("---")
+            # Timer container
+            with st.container():
+                st.markdown(f"### {config['name']}")
+                
+                # Show exact duration
+                total_seconds = int(config["minutes"] * 60)
+                mins = total_seconds // 60
+                secs = total_seconds % 60
+                st.markdown(f"**Duration:** {mins} min {secs} sec")
+                
+                # Large time display
+                time_display = format_time(remaining_seconds) if remaining_seconds is not None else "00:00"
+                st.markdown(f"<h1 style='text-align: center; color: {color}; font-family: monospace;'>{time_display}</h1>", 
+                           unsafe_allow_html=True)
+                
+                st.markdown(f"<p style='text-align: center; color: {color}; font-weight: bold;'>{status}</p>", 
+                           unsafe_allow_html=True)
+                
+                # Progress bar
+                if remaining_seconds is not None:
+                    if is_running or timer_id in st.session_state.finished_timers:
+                        progress = max(0, 1 - (remaining_seconds / (config["minutes"] * 60)))
+                        st.progress(progress)
+                    else:
+                        st.progress(0)
+                
+                # Individual controls
+                control_cols = st.columns(4)
+                
+                with control_cols[0]:
+                    if st.button("▶️", key=f"start_{timer_id}", help="Start", disabled=is_running):
+                        start_timer(timer_id)
+                        st.rerun()
+                
+                with control_cols[1]:
+                    if st.button("⏹️", key=f"stop_{timer_id}", help="Stop", disabled=not is_running):
+                        stop_timer(timer_id)
+                        st.rerun()
+                
+                with control_cols[2]:
+                    if st.button("🔄", key=f"reset_{timer_id}", help="Reset"):
+                        reset_timer(timer_id)
+                        st.rerun()
+                
+                with control_cols[3]:
+                    if st.button("🔊", key=f"test_{timer_id}", help="Test Sound"):
+                        play_notification_sound(config["frequency"])
+                
+                st.markdown("---")
 
 # Play sounds for newly finished timers
 for timer_id, frequency, name in newly_finished:
     play_notification_sound(frequency)
     st.success(f"🎵 {name} finished!")
 
-# Auto-refresh when running
-if st.session_state.is_running:
-    # Check if all timers are finished
-    all_finished = True
-    for duration_minutes, _, _ in TIMERS:
-        remaining = get_time_remaining(duration_minutes, st.session_state.start_time)
-        if remaining > 0:
-            all_finished = False
-            break
-    
-    if all_finished:
-        st.session_state.is_running = False
-        st.balloons()
-        st.success("🎉 All timers have finished!")
-    else:
-        # Refresh every second
-        time.sleep(1)
-        st.rerun()
+# Auto-refresh when any timer is running
+any_running = any(st.session_state.timer_states.get(f"timer_{i}", {}).get("is_running", False) 
+                  for i in range(st.session_state.num_timers))
+
+if any_running:
+    time.sleep(1)
+    st.rerun()
 
 # Instructions
 st.markdown("---")
-st.markdown("### Instructions:")
-st.markdown("1. Click **'Start All Timers'** to begin all countdowns simultaneously")
-st.markdown("2. Each timer will play a different musical note when it finishes")
-st.markdown("3. Use the **'Test Sound'** buttons to preview each timer's sound")
-st.markdown("4. Finished timers will be highlighted in red")
-st.markdown("5. Click **'Reset All Timers'** to stop and reset all timers")
+st.subheader("📋 Instructions")
+st.markdown("**Configuration:**")
+st.markdown("- Adjust the number of timers using the slider")
+st.markdown("- Set custom names, durations, and sounds for each timer")
+st.markdown("- Each timer can have a different musical note")
 
-# Technical note
-st.markdown("---")
-st.markdown("### 🔧 Audio Notes:")
-st.markdown("- Sounds are generated as pure sine wave tones (A4, C5, E5, G5)")
-st.markdown("- Different musical notes help distinguish which timer finished")
-st.markdown("- If audio doesn't work, check your browser's audio permissions")
-st.markdown("- Each timer plays a 1-second tone when it reaches zero")
+st.markdown("**Global Controls:**")
+st.markdown("- **Start All**: Begin all timers simultaneously")
+st.markdown("- **Stop All**: Pause all running timers")
+st.markdown("- **Reset All**: Reset all timers to their original duration")
+
+st.markdown("**Individual Controls:**")
+st.markdown("- **▶️**: Start individual timer")
+st.markdown("- **⏹️**: Stop individual timer")
+st.markdown("- **🔄**: Reset individual timer")
+st.markdown("- **🔊**: Test the timer's notification sound")
+
+st.markdown("**Features:**")
+st.markdown("- Timers run independently - start/stop any combination")
+st.markdown("- Each timer plays its unique sound when finished")
+st.markdown("- Real-time progress bars and countdown displays")
+st.markdown("- Automatic audio notifications when timers complete")
 
 # Footer
 st.markdown("---")
-st.markdown("*Extension times calculated as: (extension minutes per hour) × 1.25 hours*")
+st.markdown("*Configure each timer with custom durations and sounds for maximum flexibility*")
