@@ -171,7 +171,8 @@ for i in range(st.session_state.num_timers):
             value=st.session_state.timer_configs[i]["name"], 
             key=f"name_{i}"
         )
-        st.session_state.timer_configs[i]["name"] = new_name
+        if new_name != st.session_state.timer_configs[i]["name"]:
+            st.session_state.timer_configs[i]["name"] = new_name
         
         # Timer duration
         new_minutes = st.number_input(
@@ -182,7 +183,12 @@ for i in range(st.session_state.num_timers):
             step=0.25,
             key=f"minutes_{i}"
         )
-        st.session_state.timer_configs[i]["minutes"] = new_minutes
+        if new_minutes != st.session_state.timer_configs[i]["minutes"]:
+            st.session_state.timer_configs[i]["minutes"] = new_minutes
+            # Update timer state if not running
+            timer_id = f"timer_{i}"
+            if timer_id in st.session_state.timer_states and not st.session_state.timer_states[timer_id]['is_running']:
+                st.session_state.timer_states[timer_id]['duration'] = new_minutes
         
         # Sound frequency
         freq_idx = AVAILABLE_FREQUENCIES.index(st.session_state.timer_configs[i]["frequency"]) if st.session_state.timer_configs[i]["frequency"] in AVAILABLE_FREQUENCIES else 0
@@ -193,9 +199,8 @@ for i in range(st.session_state.num_timers):
             format_func=lambda x: f"{FREQUENCY_NAMES[x]} ({AVAILABLE_FREQUENCIES[x]}Hz)",
             key=f"freq_{i}"
         )
-        st.session_state.timer_configs[i]["frequency"] = AVAILABLE_FREQUENCIES[new_freq_idx]
-
-st.markdown("---")
+        if AVAILABLE_FREQUENCIES[new_freq_idx] != st.session_state.timer_configs[i]["frequency"]:
+            st.session_state.timer_configs[i]["frequency"] = AVAILABLE_FREQUENCIES[new_freq_idx]
 
 # Global controls
 st.subheader("🎮 Global Controls")
@@ -377,3 +382,4 @@ st.markdown("- Automatic audio notifications when timers complete")
 # Footer
 st.markdown("---")
 st.markdown("*Configure each timer with custom durations and sounds for maximum flexibility*")
+
